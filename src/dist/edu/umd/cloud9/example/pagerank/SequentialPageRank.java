@@ -14,15 +14,18 @@
  * permissions and limitations under the License.
  */
 
-package edu.umd.cloud9.example.pagerank;
 
+package edu.umd.cloud9.example.pagerank;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Arrays;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.regex.Pattern;
+import java.io.PrintWriter;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -31,6 +34,7 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
+import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.util.ToolRunner;
 
 import edu.uci.ics.jung.algorithms.cluster.WeakComponentClusterer;
@@ -45,7 +49,7 @@ import edu.uci.ics.jung.graph.DirectedSparseGraph;
  * arguments: the first is a file containing the graph data, and the second is the random jump
  * factor (a typical setting is 0.15).
  * </p>
- *
+ * 
  * <p>
  * The graph should be represented as an adjacency list. Each line should have at least one token;
  * tokens should be tab delimited. The first token represents the unique id of the source node;
@@ -53,13 +57,15 @@ import edu.uci.ics.jung.graph.DirectedSparseGraph;
  * completeness, there should be a line representing all nodes, even nodes without outlinks (those
  * lines will simply contain one token, the source node id).
  * </p>
- *
+ * 
  * @author Jimmy Lin
  */
 public class SequentialPageRank {
-  private SequentialPageRank() {}
+  private SequentialPageRank() {
+  }
 
   private static final String INPUT = "input";
+  private static final String OUTPUT = "output";
   private static final String JUMP = "jump";
 
   @SuppressWarnings({ "static-access" })
@@ -68,6 +74,8 @@ public class SequentialPageRank {
 
     options.addOption(OptionBuilder.withArgName("path").hasArg()
         .withDescription("input path").create(INPUT));
+    options.addOption(OptionBuilder.withArgName("path").hasArg()
+        .withDescription("output path").create(OUTPUT));
     options.addOption(OptionBuilder.withArgName("val").hasArg()
         .withDescription("random jump factor").create(JUMP));
 
@@ -91,33 +99,60 @@ public class SequentialPageRank {
     }
 
     String infile = cmdline.getOptionValue(INPUT);
+    String outfile = cmdline.getOptionValue(OUTPUT);
     float alpha = cmdline.hasOption(JUMP) ? Float.parseFloat(cmdline.getOptionValue(JUMP)) : 0.15f;
 
     int edgeCnt = 0;
     DirectedSparseGraph<String, Integer> graph = new DirectedSparseGraph<String, Integer>();
+    
+    File folder = new File(infile);
+    if(folder.isDirectory()){
+      for(File file:folder.listFiles()){
+        if(!file.getName().startsWith("part"))
+          continue;
+        String contents = FileUtils.readFileToString(file);
+        String[] lines = contents.split("\\n");
+        for(String line: lines){
+          line = line.replaceAll(Pattern.quote("["), "");
+          line = line.replaceAll(Pattern.quote("]"), "");
+          line = line.replaceAll(Pattern.quote(",")," ");
+          if (!line.equals("")) { // non-empty string 
+            line.trim();
+            String[] arr = line.split("\\s+");
 
-    BufferedReader data = new BufferedReader(new InputStreamReader(new FileInputStream(infile)));
-
-    String line;
-    while ((line = data.readLine()) != null) {
-      line.trim();
-      String[] arr = line.split("\\t");
-
-      for (int i = 1; i < arr.length; i++) {
-        graph.addEdge(new Integer(edgeCnt++), arr[0], arr[i]);
+            for (int i = 1; i < arr.length; i++) {
+              graph.addEdge(new Integer(edgeCnt++), arr[0], arr[i]);
+            }
+          }
       }
     }
+    }else{
+      String contents = FileUtils.readFileToString(folder);
+      String[] lines = contents.split("\\n");
+      for(String line: lines){
+          line = line.replaceAll(Pattern.quote("["), "");
+          line = line.replaceAll(Pattern.quote("]"), "");
+          line = line.replaceAll(Pattern.quote(",")," ");
+          if (!line.equals("")) { // non-empty string 
+            line.trim();
+            String[] arr = line.split("\\s+");
 
-    data.close();
-
+          for (int i = 1; i < arr.length; i++) {
+            graph.addEdge(new Integer(edgeCnt++), arr[0], arr[i]);
+          }
+        }
+      }
+    }
+    
+    PrintWriter writer = new PrintWriter(outfile,"UTF-8");
     WeakComponentClusterer<String, Integer> clusterer = new WeakComponentClusterer<String, Integer>();
 
     Set<Set<String>> components = clusterer.transform(graph);
     int numComponents = components.size();
-    System.out.println("Number of components: " + numComponents);
-    System.out.println("Number of edges: " + graph.getEdgeCount());
-    System.out.println("Number of nodes: " + graph.getVertexCount());
-    System.out.println("Random jump factor: " + alpha);
+    writer.println("Number of components: " + numComponents);
+    writer.println("Number of edges: " + graph.getEdgeCount());
+    writer.println("Number of nodes: " + graph.getVertexCount());
+    writer.println("Random jump factor: " + alpha);
 
     // Compute PageRank.
     PageRank<String, Integer> ranker = new PageRank<String, Integer>(graph, alpha);
@@ -131,10 +166,11 @@ public class SequentialPageRank {
     }
 
     // Print PageRank values.
-    System.out.println("\nPageRank of nodes, in descending order:");
+    writer.println("\nPageRank of nodes, in descending order:");
     Ranking<String> r = null;
     while ((r = q.poll()) != null) {
-      System.out.println(r.rankScore + "\t" + r.getRanked());
+      writer.println(r.rankScore + "\t" + r.getRanked());
     }
+    writer.close();
   }
 }
